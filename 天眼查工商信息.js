@@ -3,9 +3,11 @@
 // @version 1.0.0
 // @description 企业详情字段
 // @match https://www.tianyancha.com/company/*
+// @match https://www.tianyancha.com/nsearch?key=*
 // @grant GM_xmlhttpRequest
 // @require http://code.jquery.com/jquery-2.1.1.min.js
 // @connect cj.13140.cn
+// @updateURL https://raw.githubusercontent.com/e282486518/tampermonkey/refs/heads/main/天眼查工商信息.js
 // ==/UserScript==
 
 // 项目配置信息
@@ -15,12 +17,15 @@ const BeConfig = {
     // 驱动器id
     driver_id: "66667246-f818-11ef-9513-00163e060a27",
     // 内容页URL
-    getShowUrl: function () {
-        return window.location.href;
-    },
+    //getShowUrl: function () {
+    //    return window.location.href;
+    //},
+    ListClass: ".index_search-box__7YVh6",
     // 列表页字段
     ListFields: {
-
+        'show_url': function (_this) {
+            return $(_this).find('.index_name__qEdWi a').attr('href');
+        }
     },
     // 内容页字段
     ShowFields: {
@@ -129,7 +134,25 @@ BeMonkey = {
 
     // ====== 采集字段设置 start =====================================
 
-    getFields: function () {
+    getListFields: function (_this) {
+        let postDataFields = [];
+        // 链接
+        //postDataFields.push({
+        //    name: 'show_url',
+        //    content: fieldValue
+        //});
+        // 字段
+        for (let field in BeConfig.ListFields) {
+            let fieldValue = BeConfig.ListFields[field](_this);
+            postDataFields.push({
+                name: field,
+                content: fieldValue
+            });
+        }
+        return postDataFields;
+    },
+
+    getShowFields: function () {
         let sHtml = '';
         let postDataFields = [];
         for (let field in BeConfig.ShowFields) {
@@ -179,7 +202,11 @@ BeMonkey = {
                 this.status("待启动...");
                 break;
             case "run":
-                this.processLink();
+                if (this.totalLinks > 0) {
+                    this.processLink();
+                } else {
+                    this.processLink();
+                }
                 break;
             case "finish":
                 this.status("采集完成！");
@@ -266,6 +293,26 @@ BeMonkey = {
 
     // ========= 界面 end =============================
 
+    // 采集分页页面
+    processPage: function () {
+        var _this = this;
+
+        let links = [];
+        $(BeConfig.ListClass).each(function () {
+            links.push(_this.getListFields(this));
+        });
+
+        if (links.length > 0) {
+
+            setTimeout(function () {
+                window.location.href = links[0]['show_url'];
+            }, 1000);
+        } else {
+            // 列表页中未采集到详情页链接, 直接完成
+            this.finish();
+        }
+    },
+
     // 采集页面
     processLink: function () {
 
@@ -274,7 +321,7 @@ BeMonkey = {
         let postData = {
             pull_driver_id: this.driver_id,
             url: window.location.href,
-            fields: this.getFields()
+            fields: this.getShowFields()
         };
 
         console.log("采集数据回传：", postData);
@@ -293,42 +340,21 @@ BeMonkey = {
             onload: function (response) {
                 // 回传失败
                 if (response.status !== 200) {
-                    console.log("采集数据回传失败（状态码非200）：", response);
-
-                    _this.status("提交数据失败，60秒后再次尝试！");
-
-                    setTimeout(function () {
-                        window.location.reload();
-                    }, _this.page_fail_time);
-
+                    _this.httperror('状态码非200', response);
                     return;
                 }
                 // 无响应
                 if (!response.response) {
-                    console.log("采集数据回传失败（无效响应）：", response);
-
-                    _this.status("提交数据失败（无有效返回），60秒后再次尝试！");
-
-                    setTimeout(function () {
-                        window.location.reload();
-                    }, _this.page_fail_time);
-
+                    _this.httperror('无效响应', response);
                     return;
                 }
                 // 不成功
                 if (!response.response.success) {
-                    console.log("采集数据回传失败（响应失败）：", response);
-
                     let message = "";
                     if (response.response.message) {
                         message = response.response.message;
                     }
-                    _this.status("提交数据失败（" + message + "），60秒后再次尝试！");
-
-                    setTimeout(function () {
-                        window.location.reload();
-                    }, _this.page_fail_time);
-
+                    _this.httperror(message, response);
                     return;
                 }
                 // 采集成功后，记录已采集的链接数量
@@ -341,6 +367,15 @@ BeMonkey = {
             }
         });
 
+    },
+
+    // 处理ajax返回错误
+    httperror: function (response, msg) {
+        console.log("采集数据回传失败（" + msg + "）：", response);
+        this.status("提交数据失败（" + msg + "），" + this.page_fail_time + "毫秒后再次尝试！");
+        setTimeout(function () {
+            window.location.reload();
+        }, this.page_fail_time);
     },
 
     // 开始按钮点击事件
