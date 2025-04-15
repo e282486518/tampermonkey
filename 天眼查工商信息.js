@@ -16,10 +16,16 @@ const BeConfig = {
     ajax_url: "http://cj.13140.cn/?route=Monkey.Content.receive",
     // 驱动器id
     driver_id: "66667246-f818-11ef-9513-00163e060a27",
-    // 内容页URL
-    //getShowUrl: function () {
-    //    return window.location.href;
-    //},
+    // 判断是否列表页
+    isList: function () {
+        if (window.location.href.includes("search?key=")) {
+            return true;
+        } else {
+            return false;
+        }
+    },
+    // 采集列表链接最大数
+    max_list: 2,
     ListClass: ".index_search-box__7YVh6",
     // 列表页字段
     ListFields: {
@@ -192,18 +198,23 @@ BeMonkey = {
         if (totalLinks) {
             this.totalLinks = totalLinks;
         }
-
+        // 待抓取的链接
+        let links = localStorage.getItem('be:monkey:links');
+        if (!links) {
+            this.links = [];
+        } else {
+            this.links = JSON.parse(links);
+        }
         // 管理界面
         this.dashboard();
-
         // 按当前步骤执行操作
         switch (this.step) {
             case "init":
                 this.status("待启动...");
                 break;
             case "run":
-                if (this.totalLinks > 0) {
-                    this.processLink();
+                if (BeConfig.isList()) {
+                    this.processPage();
                 } else {
                     this.processLink();
                 }
@@ -293,20 +304,37 @@ BeMonkey = {
 
     // ========= 界面 end =============================
 
+    // 从 this.links 中获取详情链接
+    getShowUrl: function (array) {
+        for (let index in array) {
+            if (array[index].name == 'show_url') {
+                return array[index].content;
+            }
+        }
+        return '';
+    },
+
     // 采集分页页面
     processPage: function () {
         var _this = this;
 
         let links = [];
+        let i = 0;
         $(BeConfig.ListClass).each(function () {
             links.push(_this.getListFields(this));
+            if (++i >= BeConfig.max_list) {
+                return false;
+            }
         });
 
         if (links.length > 0) {
+            let json_str = JSON.stringify(links);
+            localStorage.setItem('be:monkey:links', json_str);
 
+            let show_url = this.getShowUrl(links[0]);
             setTimeout(function () {
-                window.location.href = links[0]['show_url'];
-            }, 1000);
+                window.location.href = show_url;
+            }, this.page_stop_time);
         } else {
             // 列表页中未采集到详情页链接, 直接完成
             this.finish();
@@ -398,12 +426,15 @@ BeMonkey = {
     jump: function () {
         // 移出当前链接
         this.links.shift();
-        localStorage.setItem('be:monkey:links', this.links.join("|"));
+
+        let json_str = JSON.stringify(this.links);
+        localStorage.setItem('be:monkey:links', json_str);
 
         if (this.links.length > 0) {
             // 延迟跳转
+            let show_url = this.getShowUrl(this.links[0]);
             setTimeout(function () {
-                window.location.href = this.links[0];
+                window.location.href = show_url;
             }, this.page_stop_time);
         } else {
             // 完成
@@ -417,7 +448,7 @@ BeMonkey = {
         //localStorage.setItem("be:monkey:step", "finish");
         this.step = "run";
         localStorage.setItem("be:monkey:step", "run");
-        //window.close();
+        window.close();
     },
 
     // base64编码
